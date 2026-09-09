@@ -32,6 +32,7 @@ import {
   getAssignments,
   saveAssignments,
   getLatestOrderDate,
+  getLatestAssignmentDate,
 } from "./api/index";
 
 const { Title, Text } = Typography;
@@ -47,13 +48,16 @@ const LOTTERY_ORDER = [
   "suba",
 ];
 
-
 const CountInput = ({ record, agent, disabled = false, onChange }) => (
   <InputNumber
     min={0}
     precision={0}
     disabled={disabled}
-    value={record.agent_counts?.[agent] === 0 ? null : (record.agent_counts?.[agent] ?? null)}
+    value={
+      record.agent_counts?.[agent] === 0
+        ? null
+        : record.agent_counts?.[agent] ?? null
+    }
     onChange={(value) => onChange(record.lottery_code, agent, value)}
     style={{ width: 80 }}
   />
@@ -66,6 +70,11 @@ const Assignment = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // New states for fetching last assignments
+  const [fetchLastAssignmentsChecked, setFetchLastAssignmentsChecked] =
+    useState(false);
+  const [fetchingLastAssignments, setFetchingLastAssignments] = useState(false);
 
   const [messageApi, messageContextHolder] = message.useMessage();
   const [modalApi, modalContextHolder] = Modal.useModal();
@@ -87,21 +96,19 @@ const Assignment = () => {
         await loadData(latestDate);
       } else {
         const today = dayjs().format("YYYY-MM-DD");
-
         setDate(today);
         await loadData(today);
       }
     } catch (err) {
       console.error("Failed to load latest assignment date:", err);
-
       const today = dayjs().format("YYYY-MM-DD");
-
       setDate(today);
       await loadData(today);
     } finally {
       setLoading(false);
     }
   };
+
   const allAutoAssigned =
     data.length > 0 && data.every((item) => item.assignRemaining);
 
@@ -111,17 +118,13 @@ const Assignment = () => {
     setData((previousData) =>
       previousData.map((item) => {
         const availableQuantity = Number(item.available_quantity || 0);
-
         const jayawayCount = Number(item.agent_counts?.JAYAWAY || 0);
-
         const currentWinwayCount = Number(item.agent_counts?.WINWAY || 0);
-
         const winwayRemaining = Math.max(availableQuantity - jayawayCount, 0);
 
         return {
           ...item,
           assignRemaining: shouldEnable,
-
           agent_counts: {
             ...item.agent_counts,
             WINWAY: shouldEnable ? winwayRemaining : currentWinwayCount,
@@ -136,6 +139,77 @@ const Assignment = () => {
         : "Auto assignment disabled for all lotteries.",
     );
   };
+
+  // New function: fetch last assignments and copy counts/auto flags
+  const handleFetchLastAssignments = async (checked) => {
+    setFetchLastAssignmentsChecked(checked);
+
+    if (!checked) return;
+
+    if (!date) {
+      messageApi.warning("Please select a date first.");
+      return;
+    }
+
+    setFetchingLastAssignments(true);
+
+    try {
+      const latestResponse = await getLatestAssignmentDate();
+      const latestDate = latestResponse.data?.date;
+
+      if (!latestDate || latestDate === date) {
+        messageApi.warning("No previous assignment available.");
+        return;
+      }
+
+      const previousResponse = await getAssignments(latestDate);
+      const previousAssignments = Array.isArray(previousResponse.data)
+        ? previousResponse.data
+        : [];
+
+      if (!previousAssignments.length) {
+        messageApi.warning("No previous assignments found.");
+        return;
+      }
+
+      // Build lookup: lottery_code -> { JAYAWAY, WINWAY, assignRemaining }
+      const assignmentMap = {};
+      previousAssignments.forEach((prev) => {
+        const code = String(prev.lottery_code || "").toLowerCase();
+        assignmentMap[code] = {
+          JAYAWAY: Number(prev.agent_counts?.JAYAWAY || 0),
+          WINWAY: Number(prev.agent_counts?.WINWAY || 0),
+          assignRemaining: Boolean(prev.assignRemaining),
+        };
+      });
+
+      setData((currentData) =>
+        currentData.map((item) => {
+          const code = String(item.lottery_code || "").toLowerCase();
+          const prev = assignmentMap[code];
+          if (!prev) return item;
+
+          return {
+            ...item,
+            assignRemaining: prev.assignRemaining,
+            agent_counts: {
+              JAYAWAY: prev.JAYAWAY,
+              WINWAY: prev.WINWAY,
+            },
+          };
+        }),
+      );
+
+      messageApi.success("Last assignments fetched successfully.");
+    } catch (error) {
+      console.error("Failed to fetch last assignments:", error);
+      messageApi.error("Failed to fetch last assignments.");
+    } finally {
+      setFetchingLastAssignments(false);
+      setFetchLastAssignmentsChecked(false);
+    }
+  };
+
   const loadData = async (selectedDate) => {
     if (!selectedDate) return;
 
@@ -144,7 +218,6 @@ const Assignment = () => {
 
     try {
       const response = await getAssignments(selectedDate);
-
       const assignmentData = Array.isArray(response.data) ? response.data : [];
 
       const sortedData = [...assignmentData].sort((a, b) => {
@@ -155,7 +228,6 @@ const Assignment = () => {
         const indexB = LOTTERY_ORDER.indexOf(codeB);
 
         const safeIndexA = indexA === -1 ? LOTTERY_ORDER.length : indexA;
-
         const safeIndexB = indexB === -1 ? LOTTERY_ORDER.length : indexB;
 
         return safeIndexA - safeIndexB;
@@ -174,7 +246,6 @@ const Assignment = () => {
       setData(normalizedData);
     } catch (err) {
       console.error("Failed to load assignments:", err);
-
       setData([]);
       setError("Failed to load assignments for the selected date.");
     } finally {
@@ -184,9 +255,7 @@ const Assignment = () => {
 
   const handleDateChange = async (selectedDay) => {
     if (!selectedDay) return;
-
     const formattedDate = selectedDay.format("YYYY-MM-DD");
-
     setDate(formattedDate);
     await loadData(formattedDate);
   };
@@ -196,9 +265,7 @@ const Assignment = () => {
 
     setData((previousData) =>
       previousData.map((item) => {
-        if (item.lottery_code !== lotteryCode) {
-          return item;
-        }
+        if (item.lottery_code !== lotteryCode) return item;
 
         const updatedAgentCounts = {
           ...item.agent_counts,
@@ -207,9 +274,7 @@ const Assignment = () => {
 
         if (agent === "JAYAWAY" && item.assignRemaining) {
           const availableQuantity = Number(item.available_quantity || 0);
-
           const winwayRemaining = Math.max(availableQuantity - count, 0);
-
           updatedAgentCounts.WINWAY = winwayRemaining;
         }
 
@@ -224,16 +289,11 @@ const Assignment = () => {
   const handleAssignRemainingToggle = (lotteryCode, checked) => {
     setData((previousData) =>
       previousData.map((item) => {
-        if (item.lottery_code !== lotteryCode) {
-          return item;
-        }
+        if (item.lottery_code !== lotteryCode) return item;
 
         const jayaCount = Number(item.agent_counts?.JAYAWAY || 0);
-
         const currentWinwayCount = Number(item.agent_counts?.WINWAY || 0);
-
         const availableQuantity = Number(item.available_quantity || 0);
-
         const remainingAfterJaya = Math.max(availableQuantity - jayaCount, 0);
 
         return {
@@ -270,7 +330,6 @@ const Assignment = () => {
   }, [data]);
 
   const totalAssigned = totalJayaway + totalWinway;
-
   const totalRemaining = totalAvailable - totalAssigned;
 
   const assignmentPercentage =
@@ -283,7 +342,6 @@ const Assignment = () => {
       const available = Number(item.available_quantity || 0);
       const jayaway = Number(item.agent_counts?.JAYAWAY || 0);
       const winway = Number(item.agent_counts?.WINWAY || 0);
-
       return jayaway + winway > available;
     });
   }, [data]);
@@ -293,16 +351,13 @@ const Assignment = () => {
       messageApi.warning("Please select an assignment date.");
       return false;
     }
-
     if (!data.length) {
       messageApi.warning("There are no assignments to save.");
       return false;
     }
-
     const hasInvalidCount = data.some((item) => {
       const jayaway = Number(item.agent_counts?.JAYAWAY || 0);
       const winway = Number(item.agent_counts?.WINWAY || 0);
-
       return (
         Number.isNaN(jayaway) ||
         Number.isNaN(winway) ||
@@ -310,23 +365,18 @@ const Assignment = () => {
         winway < 0
       );
     });
-
     if (hasInvalidCount) {
       messageApi.warning("Assignment quantities must be zero or greater.");
-
       return false;
     }
-
     if (invalidRows.length > 0) {
       messageApi.error(
         `${invalidRows.length} lottery assignment${
           invalidRows.length === 1 ? "" : "s"
         } exceed the available quantity.`,
       );
-
       return false;
     }
-
     return true;
   };
 
@@ -334,7 +384,6 @@ const Assignment = () => {
     setSaving(true);
 
     const assignments = [];
-
     data.forEach((item) => {
       Object.entries(item.agent_counts || {}).forEach(([agentName, count]) => {
         assignments.push({
@@ -352,18 +401,14 @@ const Assignment = () => {
 
     try {
       await saveAssignments(payload);
-
       messageApi.success({
         content: "Assignments saved successfully.",
         icon: <CheckCircleOutlined style={{ color: "#52c41a" }} />,
       });
-
       await loadData(date);
     } catch (err) {
       console.error("Failed to save assignments:", err);
-
       messageApi.error("Failed to save assignments. Please try again.");
-
       throw err;
     } finally {
       setSaving(false);
@@ -372,7 +417,6 @@ const Assignment = () => {
 
   const handleSave = () => {
     const isValid = validateAssignments();
-
     if (!isValid) return;
 
     modalApi.confirm({
@@ -386,20 +430,16 @@ const Assignment = () => {
             Assignment date:{" "}
             <strong>{dayjs(date).format("DD MMMM YYYY")}</strong>
           </p>
-
           <p style={{ marginBottom: 8 }}>
             Available quantity:{" "}
             <strong>{totalAvailable.toLocaleString()}</strong>
           </p>
-
           <p style={{ marginBottom: 8 }}>
             JAYAWAY assigned: <strong>{totalJayaway.toLocaleString()}</strong>
           </p>
-
           <p style={{ marginBottom: 8 }}>
             WINWAY assigned: <strong>{totalWinway.toLocaleString()}</strong>
           </p>
-
           <p style={{ marginBottom: 0 }}>
             Remaining quantity:{" "}
             <strong
@@ -431,7 +471,6 @@ const Assignment = () => {
     const available = number(record.available_quantity);
     const jayaway = number(record.agent_counts?.JAYAWAY);
     const winway = number(record.agent_counts?.WINWAY);
-
     return {
       available,
       jayaway,
@@ -448,7 +487,6 @@ const Assignment = () => {
       align: "left",
       render: (_, __, index) => <Text type="secondary">{index + 1}</Text>,
     },
-
     {
       title: "Ticket",
       dataIndex: "lottery_name",
@@ -470,10 +508,8 @@ const Assignment = () => {
           >
             {record.lottery_code?.slice(0, 2)?.toUpperCase()}
           </div>
-
           <div>
             <Text strong>{value || record.lottery_code}</Text>
-
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {record.lottery_code}
@@ -483,7 +519,6 @@ const Assignment = () => {
         </Space>
       ),
     },
-
     {
       title: "Draw",
       dataIndex: "draw_number",
@@ -493,7 +528,6 @@ const Assignment = () => {
         <Tag color={value ? "blue" : "default"}>{value || "No draw"}</Tag>
       ),
     },
-
     {
       title: "Available",
       dataIndex: "available_quantity",
@@ -501,7 +535,6 @@ const Assignment = () => {
       align: "left",
       render: (value) => <Text strong>{number(value).toLocaleString()}</Text>,
     },
-
     {
       title: "JAYAWAY",
       width: 50,
@@ -514,7 +547,6 @@ const Assignment = () => {
         />
       ),
     },
-
     {
       title: "WINWAY",
       width: 50,
@@ -528,14 +560,12 @@ const Assignment = () => {
         />
       ),
     },
-
     {
       title: "Remaining",
       width: 100,
       align: "left",
       render: (_, record) => {
         const { remaining } = getAssignment(record);
-
         if (remaining < 0) {
           return (
             <Tag color="error" icon={<WarningOutlined />}>
@@ -543,7 +573,6 @@ const Assignment = () => {
             </Tag>
           );
         }
-
         if (remaining === 0) {
           return (
             <Tag color="success" icon={<CheckCircleOutlined />}>
@@ -551,11 +580,9 @@ const Assignment = () => {
             </Tag>
           );
         }
-
         return <Tag color="warning">{remaining.toLocaleString()}</Tag>;
       },
     },
-
     {
       title: "Auto",
       width: 100,
@@ -571,26 +598,16 @@ const Assignment = () => {
         </Checkbox>
       ),
     },
-
     {
       title: "Status",
       width: 120,
       align: "center",
       render: (_, record) => {
         const { available, assigned } = getAssignment(record);
-
-        if (assigned > available) {
-          return <Tag color="error">Exceeded</Tag>;
-        }
-
-        if (assigned === available && available > 0) {
+        if (assigned > available) return <Tag color="error">Exceeded</Tag>;
+        if (assigned === available && available > 0)
           return <Tag color="success">Complete</Tag>;
-        }
-
-        if (assigned > 0) {
-          return <Tag color="processing">Partial</Tag>;
-        }
-
+        if (assigned > 0) return <Tag color="processing">Partial</Tag>;
         return <Tag>Not assigned</Tag>;
       },
     },
@@ -615,17 +632,13 @@ const Assignment = () => {
               <Title level={2} style={{ margin: 0 }}>
                 Agent Assignment
               </Title>
-
               <Text type="secondary">
-                Assign available lottery quantities to JAYAWAY and WINWAY
-                agents.
+                Assign available lottery quantities to JAYAWAY and WINWAY agents.
               </Text>
             </Col>
-
             <Col>
               <Space wrap>
                 <Text type="secondary">Assignment date:</Text>
-
                 <DatePicker
                   value={date ? dayjs(date) : null}
                   onChange={handleDateChange}
@@ -661,6 +674,7 @@ const Assignment = () => {
             style={{ marginBottom: 24 }}
           />
         )}
+
         <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
           {/* Available */}
           <Col xs={24} sm={12} md={8} lg={4}>
@@ -676,10 +690,7 @@ const Assignment = () => {
                 title="Available Quantity"
                 value={totalAvailable}
                 prefix={<TeamOutlined style={{ color: "#1677ff" }} />}
-                valueStyle={{
-                  fontWeight: 700,
-                  fontSize: 22,
-                }}
+                valueStyle={{ fontWeight: 700, fontSize: 22 }}
               />
             </Card>
           </Col>
@@ -698,10 +709,7 @@ const Assignment = () => {
                 title="JAYAWAY Assigned"
                 value={totalJayaway}
                 prefix={<UserOutlined style={{ color: "#722ed1" }} />}
-                valueStyle={{
-                  fontWeight: 700,
-                  fontSize: 22,
-                }}
+                valueStyle={{ fontWeight: 700, fontSize: 22 }}
               />
             </Card>
           </Col>
@@ -720,10 +728,7 @@ const Assignment = () => {
                 title="WINWAY Assigned"
                 value={totalWinway}
                 prefix={<UserOutlined style={{ color: "#13c2c2" }} />}
-                valueStyle={{
-                  fontWeight: 700,
-                  fontSize: 22,
-                }}
+                valueStyle={{ fontWeight: 700, fontSize: 22 }}
               />
             </Card>
           </Col>
@@ -778,30 +783,22 @@ const Assignment = () => {
                 boxShadow: "0 4px 16px rgba(0, 0, 0, 0.4)",
               }}
               styles={{
-                body: {
-                  height: "100%",
-                  padding: 20,
-                  position: "relative",
-                },
+                body: { height: "100%", padding: 20, position: "relative" },
               }}
             >
-              {/* Background progress fill */}
               <div
                 style={{
                   position: "absolute",
                   top: 0,
                   left: 0,
                   bottom: 0,
-
                   width: `${Math.min(assignmentPercentage, 100)}%`,
-
                   background:
                     totalRemaining < 0
                       ? "rgba(255, 77, 79, 0.14)"
                       : totalRemaining === 0
                         ? "rgba(82, 196, 26, 0.14)"
                         : "rgba(22, 119, 255, 0.12)",
-
                   borderRight:
                     assignmentPercentage > 0
                       ? `3px solid ${
@@ -812,19 +809,11 @@ const Assignment = () => {
                               : "#1677ff"
                         }`
                       : "none",
-
                   transition: "width 0.4s ease",
                   zIndex: 0,
                 }}
               />
-
-              {/* Card content */}
-              <div
-                style={{
-                  position: "relative",
-                  zIndex: 1,
-                }}
-              >
+              <div style={{ position: "relative", zIndex: 1 }}>
                 <div
                   style={{
                     display: "flex",
@@ -834,21 +823,13 @@ const Assignment = () => {
                   }}
                 >
                   <div>
-                    <Text
-                      strong
-                      style={{
-                        fontSize: 20,
-                        display: "block",
-                      }}
-                    >
+                    <Text strong style={{ fontSize: 20, display: "block" }}>
                       Overall Assignment
                     </Text>
-
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       Ticket allocation progress
                     </Text>
                   </div>
-
                   <Text
                     strong
                     style={{
@@ -868,6 +849,7 @@ const Assignment = () => {
             </Card>
           </Col>
         </Row>
+
         <Card
           title={
             <Space>
@@ -883,6 +865,15 @@ const Assignment = () => {
           extra={
             data.length > 0 && (
               <Space>
+                {/* New Checkbox for fetching last assignments */}
+                <Checkbox
+                  checked={fetchLastAssignmentsChecked}
+                  onChange={(e) => handleFetchLastAssignments(e.target.checked)}
+                  disabled={loading || !date || fetchingLastAssignments}
+                >
+                  Fetch last assignments
+                </Checkbox>
+
                 <Button
                   icon={<CheckCircleOutlined />}
                   onClick={handleAutoAssignAll}
@@ -911,6 +902,7 @@ const Assignment = () => {
             dataSource={data}
             loading={loading}
             pagination={false}
+            scroll={{ x: 1000 }}
             locale={{
               emptyText: (
                 <Empty
@@ -928,25 +920,19 @@ const Assignment = () => {
                 <Table.Summary fixed>
                   <Table.Summary.Row>
                     <Table.Summary.Cell index={0} />
-
                     <Table.Summary.Cell index={1}>
                       <Text strong>Total</Text>
                     </Table.Summary.Cell>
-
                     <Table.Summary.Cell index={2} />
-
                     <Table.Summary.Cell index={3} align="right">
                       <Text strong>{totalAvailable.toLocaleString()}</Text>
                     </Table.Summary.Cell>
-
                     <Table.Summary.Cell index={4} align="right">
                       <Text strong>{totalJayaway.toLocaleString()}</Text>
                     </Table.Summary.Cell>
-
                     <Table.Summary.Cell index={5} align="right">
                       <Text strong>{totalWinway.toLocaleString()}</Text>
                     </Table.Summary.Cell>
-
                     <Table.Summary.Cell index={6} align="right">
                       <Text
                         strong
@@ -955,9 +941,7 @@ const Assignment = () => {
                         {totalRemaining.toLocaleString()}
                       </Text>
                     </Table.Summary.Cell>
-
                     <Table.Summary.Cell index={7} />
-
                     <Table.Summary.Cell index={8} />
                   </Table.Summary.Row>
                 </Table.Summary>

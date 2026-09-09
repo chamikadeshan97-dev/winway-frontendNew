@@ -1,5 +1,5 @@
 import axios from "axios";
-const api = axios.create({ baseURL: "http://127.0.0.1:8000/api/v1" });
+const api = axios.create({ baseURL: "https://backoffice.884.lk/pyapi/api/v1" });
 
 export const uploadArchive = (file, date) => {
   const formData = new FormData();
@@ -24,6 +24,8 @@ export const downloadFile = (sessionId, filename, originalName) => {
     responseType: "blob",
   });
 };
+export const getLatestAssignmentDate = () =>
+  api.get('/assignments/latest');
 export const downloadAgentZip = (sessionId, agentName) =>
   api.get(`/download-agent-zip/${sessionId}/${agentName}`, {
     responseType: "blob",

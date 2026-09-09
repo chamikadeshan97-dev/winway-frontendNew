@@ -1311,6 +1311,7 @@ const SplitPage = () => {
                       loading={loadingSpecials || loadingRemaining}
                       pagination={{ pageSize: 10, showSizeChanger: false }}
                       size="middle"
+                      scroll={{ x: 800 }}
                       locale={{
                         emptyText: (
                           <Empty
