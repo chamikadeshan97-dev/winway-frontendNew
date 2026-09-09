@@ -902,6 +902,7 @@ const Assignment = () => {
             dataSource={data}
             loading={loading}
             pagination={false}
+            scroll={{ x: 1000 }}
             locale={{
               emptyText: (
                 <Empty
