@@ -319,6 +319,7 @@ const SplitPage = () => {
         return {
           ...item,
           lottery_name: assignedItem?.lottery_name || item.lottery_code,
+          draw_number: assignedItem?.draw_number || "",
         };
       });
 
@@ -488,15 +489,25 @@ const SplitPage = () => {
       const lotteryName =
         lotterySplits[0]?.lottery_name || LOTTERY_NAME_MAP[code] || code;
 
+      const remainingItem = remainingCounts.find(
+        (r) => normalizeLotteryCode(r.lottery_code) === code
+      );
+
+      const assignmentItem = assignedCounts.find(
+        (a) => normalizeLotteryCode(a.lottery_code) === code
+      );
+
+      const drawNumber =
+        lotterySplits[0]?.draw_number ||
+        remainingItem?.draw_number ||
+        assignmentItem?.draw_number ||
+        "";
+
       const splitData = {};
       labels.forEach((label) => {
         const match = lotterySplits.find((s) => s.label === label);
         splitData[label] = match || null;
       });
-
-      const remainingItem = remainingCounts.find(
-        (r) => normalizeLotteryCode(r.lottery_code) === code
-      );
 
       const initialAssigned = Number(remainingItem?.original_assigned || 0);
 
@@ -504,6 +515,7 @@ const SplitPage = () => {
         key: code,
         lottery_code: code,
         lottery_name: lotteryName,
+        draw_number: drawNumber,
         initial_assigned: initialAssigned,
         splitData,
         remaining: Number(remainingItem?.remaining_count || 0),
@@ -516,7 +528,13 @@ const SplitPage = () => {
     });
 
     return { labels, rows };
-  }, [filteredSpecialSplits, remainingCounts, specialFilterType, specialFilterValue]);
+  }, [
+    filteredSpecialSplits,
+    remainingCounts,
+    assignedCounts,
+    specialFilterType,
+    specialFilterValue,
+  ]);
 
   const totalInitialInMatrix = useMemo(() => {
     return specialSplitMatrix.rows.reduce(
@@ -532,7 +550,6 @@ const SplitPage = () => {
     );
   }, [specialSplitMatrix.rows]);
 
-  // NEW: total split count per label
   const splitTotals = useMemo(() => {
     const totals = {};
     specialSplitMatrix.labels.forEach((label) => {
@@ -700,27 +717,24 @@ const SplitPage = () => {
       title: "Ticket / Draw",
       key: "ticket",
       width: 240,
-      render: (_, record) => {
-        const code = normalizeLotteryCode(record.lottery_code || record.lottery_name);
-        return (
-          <Space size={10}>
-            <div className="ticket-code-box">{code.slice(0, 2).toUpperCase()}</div>
-            <div>
-              <Text strong style={{ display: "block" }}>
-                {record.lottery_name || record.lottery_code || "Unknown"}
-              </Text>
-              <Space size={6} style={{ marginTop: 3 }}>
-                <Text type="secondary" style={{ fontSize: 11, textTransform: "uppercase" }}>
-                  {code}
-                </Text>
-                <Tag color={record.draw_number ? "blue" : "default"} style={{ margin: 0, fontSize: 11 }}>
-                  {record.draw_number ? `Draw ${record.draw_number}` : "No draw"}
-                </Tag>
-              </Space>
-            </div>
-          </Space>
-        );
-      },
+      render: (_, record) => (
+        <div>
+          <Text strong style={{ display: "block" }}>
+            {record.lottery_name || record.lottery_code || "Unknown"}
+          </Text>
+          <Tag
+            color={record.draw_number ? "blue" : "default"}
+            style={{
+              margin: 0,
+              marginTop: 4,
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            {record.draw_number ? `Draw ${record.draw_number}` : "No draw"}
+          </Tag>
+        </div>
+      ),
     },
     {
       title: "Uploaded",
@@ -804,42 +818,24 @@ const SplitPage = () => {
       title: "Ticket / Draw",
       key: "ticket",
       width: 250,
-      render: (_, record) => {
-        const code = normalizeLotteryCode(record.lottery_code || record.lottery_name);
-        return (
-          <Space size={10}>
-            <div
-              style={{
-                width: 40,
-                height: 40,
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 10,
-                background: agent === "JAYAWAY" ? "#f9f0ff" : "#e6fffb",
-                color: agent === "JAYAWAY" ? "#722ed1" : "#13c2c2",
-                fontWeight: 700,
-              }}
-            >
-              {code.slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <Text strong style={{ display: "block" }}>
-                {record.lottery_name || record.lottery_code || "Unknown"}
-              </Text>
-              <Space size={6} style={{ marginTop: 3 }}>
-                <Text type="secondary" style={{ fontSize: 11, textTransform: "uppercase" }}>
-                  {code}
-                </Text>
-                <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>
-                  {record.draw_number ? `Draw ${record.draw_number}` : "No draw"}
-                </Tag>
-              </Space>
-            </div>
-          </Space>
-        );
-      },
+      render: (_, record) => (
+        <div>
+          <Text strong style={{ display: "block" }}>
+            {record.lottery_name || record.lottery_code || "Unknown"}
+          </Text>
+          <Tag
+            color={record.draw_number ? "blue" : "default"}
+            style={{
+              margin: 0,
+              marginTop: 4,
+              fontSize: 11,
+              fontWeight: 600,
+            }}
+          >
+            {record.draw_number ? `Draw ${record.draw_number}` : "No draw"}
+          </Tag>
+        </div>
+      ),
     },
     {
       title: "Available",
@@ -902,6 +898,20 @@ const SplitPage = () => {
       render: (_, record) => (
         <Text strong>{record.lottery_name || record.lottery_code}</Text>
       ),
+    },
+    {
+      title: "Draw",
+      dataIndex: "draw_number",
+      key: "draw_number",
+      align: "center",
+      render: (value) =>
+        value ? (
+          <Tag color="blue" style={{ margin: 0 }}>
+            {value}
+          </Tag>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     },
     {
       title: "Remaining",
@@ -1234,7 +1244,6 @@ const SplitPage = () => {
               </Row>
             </Card>
 
-            {/* ASSIGNMENT CARD (COLLAPSIBLE) */}
             <Card
               className={`split-assignment-card ${agent === "JAYAWAY" ? "jayaway-card" : "winway-card"}`}
               bordered={false}
@@ -1351,7 +1360,6 @@ const SplitPage = () => {
               )}
             </Card>
 
-            {/* SPECIAL SPLITS CARD */}
             <Card
               className="special-splits-enhanced-card"
               bordered={false}
@@ -1475,31 +1483,27 @@ const SplitPage = () => {
                         title: "Lottery",
                         dataIndex: "lottery_name",
                         key: "lottery_name",
-                        width: 190,
+                        width: 200,
                         fixed: "left",
                         render: (value, record) => (
-                          <Space size={8}>
-                            <div
-                              style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 8,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                background:
-                                  "linear-gradient(135deg, #e6f4ff, #bae0ff)",
-                                color: "#1677ff",
-                                fontWeight: 700,
-                                fontSize: 11,
-                              }}
-                            >
-                              {record.lottery_code.slice(0, 2).toUpperCase()}
-                            </div>
-                            <Text strong style={{ fontSize: 13 }}>
+                          <div>
+                            <Text strong style={{ fontSize: 13, display: "block" }}>
                               {value}
                             </Text>
-                          </Space>
+                            <Tag
+                              color={record.draw_number ? "blue" : "default"}
+                              style={{
+                                margin: 0,
+                                marginTop: 3,
+                                fontSize: 10,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {record.draw_number
+                                ? `Draw ${record.draw_number}`
+                                : "No draw"}
+                            </Tag>
+                          </div>
                         ),
                       },
                       {
@@ -1691,7 +1695,6 @@ const SplitPage = () => {
         )}
       </div>
 
-      {/* Special Split Modal */}
       <Modal
         title="Create Special Split"
         open={showSpecialModal}
@@ -1722,13 +1725,14 @@ const SplitPage = () => {
                 <Table.Summary.Cell index={1}>
                   <Text strong>Total</Text>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={2} align="right">
+                <Table.Summary.Cell index={2} />
+                <Table.Summary.Cell index={3} align="right">
                   <Text strong>{totalRemaining.toLocaleString()}</Text>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={3} align="right">
+                <Table.Summary.Cell index={4} align="right">
                   <Text strong>{totalSpecialTake.toLocaleString()}</Text>
                 </Table.Summary.Cell>
-                <Table.Summary.Cell index={4} align="right">
+                <Table.Summary.Cell index={5} align="right">
                   <Text strong type={newRemainingTotal === 0 ? "success" : "warning"}>
                     {newRemainingTotal.toLocaleString()}
                   </Text>
@@ -1780,7 +1784,6 @@ const SplitPage = () => {
         .split-page .ant-table-tbody > tr:hover > td { background:#f8fbff !important; }
         .split-error-row > td { background:#fff2f0 !important; }
         .split-error-row:hover > td { background:#ffe7e5 !important; }
-        .ticket-code-box { width:40px; height:40px; flex-shrink:0; display:flex; align-items:center; justify-content:center; border-radius:10px; background:#e6f4ff; color:#1677ff; font-weight:700; text-transform:uppercase; }
         .serial-range > div { display:flex; align-items:center; gap:8px; }
         .serial-label { display:inline-block; width:36px; font-size:9px; font-weight:600; }
         .split-agent-selector { margin-bottom:20px; background:linear-gradient(135deg,#ffffff,#fafcff); }
@@ -1816,9 +1819,6 @@ const SplitPage = () => {
           text-align: center;
         }
 
-        /* ============================================
-           ENHANCED SPECIAL SPLITS CARD
-        ============================================ */
         .special-splits-enhanced-card {
           border: 1px solid #f0f0f0 !important;
           border-radius: 16px !important;
@@ -1871,9 +1871,6 @@ const SplitPage = () => {
           padding: 20px 24px 24px;
         }
 
-        /* ============================================
-           SPECIAL MATRIX TABLE
-        ============================================ */
         .special-splits-enhanced-card .ant-table {
           border-radius: 12px;
           overflow: hidden;
@@ -1900,7 +1897,6 @@ const SplitPage = () => {
           font-weight: 600;
         }
 
-        /* Visual separation between split groups */
         .special-matrix-table .split-group-start {
           border-left: 2px solid #e6d9ff !important;
         }
