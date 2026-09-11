@@ -1,5 +1,8 @@
 import axios from "axios";
-const api = axios.create({ baseURL: "http://127.0.0.1:8000/api/v1" });
+
+import { ENV } from "../../config/env";
+const API_BASE = ENV.REACT_APP_API_BASE_PY;
+const api = axios.create({ baseURL: API_BASE + "/api/v1" });
 
 export const uploadArchive = (file, date) => {
   const formData = new FormData();
@@ -75,38 +78,38 @@ export const getWinningFilesByDate = (date) =>
   api.get("/winning-files-by-date", { params: { date } });
 
 export const createSpecialSplit = (data) =>
-  api.post('/special-split', data, {
-    headers: { 'Content-Type': 'application/json' },
+  api.post("/special-split", data, {
+    headers: { "Content-Type": "application/json" },
   });
 
 export const getSpecialSplits = (agentName, date) =>
-  api.get('/special-splits', {
+  api.get("/special-splits", {
     params: { agent_name: agentName, date },
   });
 
 export const downloadSpecialFile = (sessionId, filename) =>
   api.get(`/download-special-file/${filename}`, {
     params: { session: sessionId },
-    responseType: 'blob',
+    responseType: "blob",
   });
-  export const getSpecialSplitsRemaining = (agentName, date) =>
-  api.get('/special-splits-remaining', {
+export const getSpecialSplitsRemaining = (agentName, date) =>
+  api.get("/special-splits-remaining", {
     params: { agent_name: agentName, date },
   });
 
 export const downloadSpecialZip = (agentName, date, options = {}) =>
-  api.get('/download-special-zip', {
+  api.get("/download-special-zip", {
     params: {
       agent_name: agentName,
       date,
       split_label: options.splitLabel,
       lottery_code: options.lotteryCode,
     },
-    responseType: 'blob',
+    responseType: "blob",
   });
 
 export const downloadRemainingZip = (agentName, date) =>
-  api.get('/download-remaining-zip', {
+  api.get("/download-remaining-zip", {
     params: { agent_name: agentName, date },
-    responseType: 'blob',
+    responseType: "blob",
   });

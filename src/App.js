@@ -20,8 +20,12 @@ import LoyaltyEmails from "./Pages/LoyaltyEmails";
 import Dashboard from "./Pages/DashBoardPage";
 import CustomSMS from "./Pages/CustomSMS";
 import CustomEmails from "./Pages/CustomEmails";
+
 import LoyalityPromotions from "./Pages/LoyalityPromotions";
 import MonthlyUpgradesTable from "./Pages/MonthlyUpgradesTable";
+import LoyaltyEvaluationManager from "./Pages/LoyaltyEvaluationManager.js";
+
+
 import FileManager from "./Pages/FileManager.js";
 import WeeklyImagesManager from "./Pages/WeeklyImagesManager.js";
 import RegistrationCountPage from "./Pages/RegistrationCountPage.js";
@@ -44,10 +48,12 @@ import ResultUpload from "./Pages/ResultUpload.js";
 import ResultSplit from "./Pages/ResultSplit.js";
 import ResultDownload from "./Pages/ResultDownload.js";
 
-const getDefaultTab = () => {
-  const role = (localStorage.getItem("role") || "")
-    .trim()
-    .toLowerCase();
+/* =========================================================
+   Role helpers
+========================================================= */
+
+const isFinancialUser = () => {
+  const role = (localStorage.getItem("role") || "").trim().toLowerCase();
 
   const financialRoles = [
     "financial",
@@ -57,113 +63,262 @@ const getDefaultTab = () => {
     "finance",
   ];
 
-  return financialRoles.includes(role) ? "10-1" : "0";
+  return financialRoles.includes(role);
 };
 
+const getDefaultTab = () => {
+  return isFinancialUser() ? "10-1" : "0";
+};
+
+/* =========================================================
+   App
+========================================================= */
+
 function App() {
+  const navigate = useNavigate();
+
   const [results, setResults] = useState(null);
 
-  const [activeTab, setActiveTab] = useState(() => getDefaultTab());
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return Boolean(localStorage.getItem("token"));
+  });
 
-  const [isAuthenticated, setIsAuthenticated] = useState(() =>
-    Boolean(localStorage.getItem("token")),
-  );
+  const [activeTab, setActiveTab] = useState(() => {
+    return getDefaultTab();
+  });
 
-  const navigate = useNavigate();
-  const location = useLocation();
+  /* =========================================================
+     Sync authentication
+  ========================================================= */
 
-  const isLoggedIn =
-    isAuthenticated || Boolean(localStorage.getItem("token"));
-
-  const publicPaths = [
-    "/login",
-    "/change-password",
-    "/sms/welcome",
-  ];
-
-  // Check authentication when the app loads or route changes
   useEffect(() => {
     const token = localStorage.getItem("token");
-    const isPublicPath = publicPaths.includes(location.pathname);
 
     if (token) {
       setIsAuthenticated(true);
-
-      // Set Financial User default tab after page refresh
-      if (location.pathname === "/dashboard") {
-        const defaultTab = getDefaultTab();
-
-        if (defaultTab === "10-1") {
-          setActiveTab("10-1");
-        }
-      }
-
-      return;
+    } else {
+      setIsAuthenticated(false);
     }
+  }, []);
 
-    setIsAuthenticated(false);
+  /* =========================================================
+     Warn before refresh / close
+  ========================================================= */
 
-    if (!isPublicPath) {
-      navigate("/login", { replace: true });
-    }
-  }, [location.pathname, navigate]);
-
-  // Warn the user before closing or refreshing
   useEffect(() => {
-    const handler = (event) => {
+    const handleBeforeUnload = (event) => {
       event.preventDefault();
       event.returnValue = "";
     };
 
-    window.addEventListener("beforeunload", handler);
+    window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
-      window.removeEventListener("beforeunload", handler);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, []);
+
+  /* =========================================================
+     Results
+  ========================================================= */
 
   const handleResults = (data) => {
     setResults(data);
     setActiveTab("2");
   };
 
+  /* =========================================================
+     Login
+  ========================================================= */
+
   const handleLoginSuccess = () => {
-    // Login.js must save token and role before calling this function
+    /*
+     * Login.js should save these BEFORE calling onLogin():
+     *
+     * localStorage.setItem("token", ...)
+     * localStorage.setItem("role", ...)
+     */
+
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      return;
+    }
+
     setIsAuthenticated(true);
 
     const defaultTab = getDefaultTab();
+
     setActiveTab(defaultTab);
 
-    navigate("/dashboard", { replace: true });
+    navigate("/dashboard", {
+      replace: true,
+    });
   };
 
+  /* =========================================================
+     Logout
+  ========================================================= */
+
   const handleLogout = () => {
-    localStorage.clear();
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+
+    // If you intentionally want EVERYTHING cleared,
+    // use localStorage.clear() instead.
+
     setIsAuthenticated(false);
     setActiveTab("0");
     setResults(null);
 
-    navigate("/login", { replace: true });
+    navigate("/login", {
+      replace: true,
+    });
   };
+
+  /* =========================================================
+     Dashboard content
+  ========================================================= */
+
+  const renderDashboardContent = () => {
+    switch (activeTab) {
+      /* ================= Dashboard ================= */
+
+      case "0":
+        return <Dashboard />;
+
+      case "1":
+        return <FileUploadForm setResults={handleResults} />;
+
+      case "2":
+        return <ResultsView results={results} />;
+
+      case "4":
+        return <Settings />;
+
+      /* ================= Loyalty ================= */
+
+      case "5-1":
+        return <Loyality />;
+
+      case "5-2":
+        return <LoyaltyCustomers />;
+
+      case "5-3":
+        return <MonthlyUpgrade />;
+
+      case "5-4":
+        return <LoyalityPromotions />;
+
+      case "5-5":
+        return <LoyaltyEmails />;
+
+      case "5-7":
+        return <MonthlyUpgradesTable />;
+
+      case "5-8":
+        return <LoyaltyEvaluationManager />;
+      /* ================= Custom messages ================= */
+
+      case "6-1":
+        return <CustomSMS />;
+
+      case "6-2":
+        return <CustomEmails />;
+
+      /* ================= Files ================= */
+
+      case "7":
+        return <FileManager />;
+
+      case "8":
+        return <WeeklyImagesManager />;
+
+      /* ================= Reports ================= */
+
+      case "9-1":
+        return <RegistrationCountPage />;
+
+      case "9-2":
+        return <DailySalesSummery />;
+
+      case "9-3":
+        return <ReconciliationSummary />;
+
+      case "9-4":
+        return <DailyFullSummary />;
+
+      case "9-5":
+        return <DailyFullSummaryRecc />;
+
+      /* ================= Order Management ================= */
+
+      case "10-1":
+        return <Overview />;
+
+      case "10-2-1":
+        return <OrderEntry />;
+
+      case "10-2-2":
+        return <Assignment />;
+
+      case "10-2-3":
+        return <UploadPage />;
+
+      case "10-2-4":
+        return <SplitPage />;
+
+      case "10-2-5":
+        return <DownloadPage />;
+
+      /* ================= Winning Result Management ================= */
+
+      case "10-3-1":
+        return <ResultUpload />;
+
+      case "10-3-2":
+        return <ResultSplit />;
+
+      case "10-3-3":
+        return <ResultDownload />;
+
+      /* ================= Super Admin ================= */
+
+      case "11":
+        return <SuperAdminUsersPage />;
+
+      /* ================= Fallback ================= */
+
+      default:
+        return isFinancialUser() ? <Overview /> : <Dashboard />;
+    }
+  };
+
+  /* =========================================================
+     Routes
+  ========================================================= */
 
   return (
     <Routes>
-      {/* Default path */}
+      {/* =====================================================
+          ROOT
+      ====================================================== */}
+
       <Route
         path="/"
         element={
-          <Navigate
-            to={isLoggedIn ? "/dashboard" : "/login"}
-            replace
-          />
+          <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />
         }
       />
 
-      {/* Login */}
+      {/* =====================================================
+          LOGIN
+      ====================================================== */}
+
       <Route
         path="/login"
         element={
-          isLoggedIn ? (
+          isAuthenticated ? (
             <Navigate to="/dashboard" replace />
           ) : (
             <Login onLogin={handleLoginSuccess} />
@@ -171,77 +326,31 @@ function App() {
         }
       />
 
-      {/* Public routes */}
-      <Route
-        path="/change-password"
-        element={<ChangePassword />}
-      />
+      {/* =====================================================
+          PUBLIC
+      ====================================================== */}
 
-      <Route
-        path="/sms/welcome"
-        element={<SmsWelcome />}
-      />
+      <Route path="/change-password" element={<ChangePassword />} />
 
-      {/* Protected Dashboard */}
+      <Route path="/sms/welcome" element={<SmsWelcome />} />
+<Route
+  path="/loyalty-evaluation"
+  element={<LoyaltyEvaluationManager />}
+/>
+      {/* =====================================================
+          PROTECTED DASHBOARD
+      ====================================================== */}
+
       <Route
         path="/dashboard"
         element={
-          isLoggedIn ? (
+          isAuthenticated ? (
             <DashboardLayout
               activeTab={activeTab}
               onTabChange={setActiveTab}
               onLogout={handleLogout}
             >
-              {activeTab === "0" && <Dashboard />}
-
-              {activeTab === "1" && (
-                <FileUploadForm setResults={handleResults} />
-              )}
-
-              {activeTab === "2" && (
-                <ResultsView results={results} />
-              )}
-
-              {activeTab === "4" && <Settings />}
-
-              {/* Loyalty */}
-              {activeTab === "5-1" && <Loyality />}
-              {activeTab === "5-2" && <LoyaltyCustomers />}
-              {activeTab === "5-3" && <MonthlyUpgrade />}
-              {activeTab === "5-4" && <LoyalityPromotions />}
-              {activeTab === "5-5" && <LoyaltyEmails />}
-              {activeTab === "5-7" && <MonthlyUpgradesTable />}
-
-              {/* Custom Messages */}
-              {activeTab === "6-1" && <CustomSMS />}
-              {activeTab === "6-2" && <CustomEmails />}
-
-              {/* Files and Images */}
-              {activeTab === "7" && <FileManager />}
-              {activeTab === "8" && <WeeklyImagesManager />}
-
-              {/* Reports */}
-              {activeTab === "9-1" && <RegistrationCountPage />}
-              {activeTab === "9-2" && <DailySalesSummery />}
-              {activeTab === "9-3" && <ReconciliationSummary />}
-              {activeTab === "9-4" && <DailyFullSummary />}
-              {activeTab === "9-5" && <DailyFullSummaryRecc />}
-
-              {/* Super Admin */}
-              {activeTab === "11" && <SuperAdminUsersPage />}
-
-              {/* Order Management */}
-              {activeTab === "10-1" && <Overview />}
-              {activeTab === "10-2-1" && <OrderEntry />}
-              {activeTab === "10-2-2" && <Assignment />}
-              {activeTab === "10-2-3" && <UploadPage />}
-              {activeTab === "10-2-4" && <SplitPage />}
-              {activeTab === "10-2-5" && <DownloadPage />}
-
-              {/* Winning Result Management */}
-              {activeTab === "10-3-1" && <ResultUpload />}
-              {activeTab === "10-3-2" && <ResultSplit />}
-              {activeTab === "10-3-3" && <ResultDownload />}
+              {renderDashboardContent()}
             </DashboardLayout>
           ) : (
             <Navigate to="/login" replace />
@@ -249,14 +358,14 @@ function App() {
         }
       />
 
-      {/* Unknown paths */}
+      {/* =====================================================
+          UNKNOWN ROUTES
+      ====================================================== */}
+
       <Route
         path="*"
         element={
-          <Navigate
-            to={isLoggedIn ? "/dashboard" : "/login"}
-            replace
-          />
+          <Navigate to={isAuthenticated ? "/dashboard" : "/login"} replace />
         }
       />
     </Routes>

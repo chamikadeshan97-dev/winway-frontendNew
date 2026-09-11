@@ -56,6 +56,10 @@ const DashboardLayout = ({ activeTab, onTabChange, children, onLogout }) => {
 
   const loyaltyMenu = [
     {
+      key: "5-8",
+      label: "Loyalty Evaluation",
+    },
+     {
       key: "5-3",
       label: "Monthly Upgrade Process",
     },
