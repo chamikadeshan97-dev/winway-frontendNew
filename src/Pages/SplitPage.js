@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import {
   Alert,
+  Badge,
   Button,
   Card,
   Col,
@@ -19,6 +20,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from "antd";
 
@@ -27,6 +29,8 @@ import {
   CheckCircleOutlined,
   DatabaseOutlined,
   ExclamationCircleOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
   ScissorOutlined,
   TeamOutlined,
   UserOutlined,
@@ -34,6 +38,7 @@ import {
   DownOutlined,
   UpOutlined,
   DownloadOutlined,
+  HistoryOutlined,
 } from "@ant-design/icons";
 
 import dayjs from "dayjs";
@@ -57,15 +62,9 @@ import {
 const { Title, Text } = Typography;
 
 const LOTTERY_ORDER = [
-  "ada",
-  "dana",
-  "govi",
-  "hada",
-  "maha",
-  "mgap",
-  "jaya",
-  "suba",
+  "ada", "dana", "govi", "hada", "maha", "mgap", "jaya", "suba",
 ];
+
 const LOTTERY_NAME_MAP = {
   ada: "Ada Sampatha",
   dana: "Dhana Nidhanaya",
@@ -76,6 +75,7 @@ const LOTTERY_NAME_MAP = {
   jaya: "NLB Jaya",
   suba: "Suba Dawasak",
 };
+
 const normalizeLotteryCode = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "ada" || normalized.includes("ada sampatha")) return "ada";
@@ -95,6 +95,11 @@ const getSortedIndex = (value) => {
   return index === -1 ? LOTTERY_ORDER.length : index;
 };
 
+const getSplitLabelNumber = (label) => {
+  const match = String(label || "").match(/(\d+)/);
+  return match ? match[1] : label;
+};
+
 const SplitPage = () => {
   const navigate = useNavigate();
 
@@ -110,8 +115,6 @@ const SplitPage = () => {
   const [splitting, setSplitting] = useState(false);
   const [error, setError] = useState("");
 
-
-  // Special split states
   const [specialSplits, setSpecialSplits] = useState([]);
   const [showSpecialModal, setShowSpecialModal] = useState(false);
   const [specialCounts, setSpecialCounts] = useState({});
@@ -122,6 +125,7 @@ const SplitPage = () => {
   const [loadingRemaining, setLoadingRemaining] = useState(false);
   const [specialFilterType, setSpecialFilterType] = useState("all");
   const [specialFilterValue, setSpecialFilterValue] = useState(null);
+  const [showAssignmentTable, setShowAssignmentTable] = useState(true);
 
   const [messageApi, messageContextHolder] = message.useMessage();
   const [modalApi, modalContextHolder] = Modal.useModal();
@@ -149,6 +153,10 @@ const SplitPage = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDate, agent, validation?.is_valid]);
+
+  useEffect(() => {
+    setShowAssignmentTable(!hasInitialSplit);
+  }, [hasInitialSplit]);
 
   const loadLatestDate = async () => {
     setLoading(true);
@@ -280,13 +288,11 @@ const SplitPage = () => {
     return specialSplits;
   }, [specialSplits, specialFilterType, specialFilterValue]);
 
-   // Unique labels for split filter
   const uniqueSplitLabels = useMemo(() => {
     const labels = specialSplits.map((s) => s.label);
     return [...new Set(labels)];
   }, [specialSplits]);
 
-  // Options for second dropdown
   const filterValueOptions = useMemo(() => {
     if (specialFilterType === "by_split") {
       return uniqueSplitLabels.map((label) => ({ value: label, label }));
@@ -300,15 +306,12 @@ const SplitPage = () => {
     return [];
   }, [specialFilterType, uniqueSplitLabels]);
 
-
-
   const loadRemainingCounts = async (date, agentName) => {
     setLoadingRemaining(true);
     try {
       const res = await getSpecialSplitsRemaining(agentName, date);
       const remainingData = res.data?.remaining || [];
 
-      // Merge lottery_name from assignedCounts (already loaded)
       const enrichedRemaining = remainingData.map((item) => {
         const assignedItem = assignedCounts.find(
           (a) => a.lottery_code.toLowerCase() === item.lottery_code.toLowerCase()
@@ -319,7 +322,6 @@ const SplitPage = () => {
         };
       });
 
-      // Sort according to LOTTERY_ORDER
       const sortedEnriched = [...enrichedRemaining].sort((a, b) => {
         return getSortedIndex(a.lottery_code) - getSortedIndex(b.lottery_code);
       });
@@ -395,6 +397,22 @@ const SplitPage = () => {
     }
   };
 
+  const handleDownloadSpecialZipForLabel = async (label) => {
+    try {
+      const res = await downloadSpecialZip(agent, selectedDate, {
+        splitLabel: label,
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${agent}_${label.replace(/\s+/g, "_")}_${selectedDate}.zip`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      messageApi.error(`Failed to download ${label} ZIP.`);
+    }
+  };
+
   const getMismatchInfo = (lottery) => {
     if (!validation?.mismatches?.length) return null;
     const targetCode = normalizeLotteryCode(lottery.lottery_code || lottery.lottery_name);
@@ -453,6 +471,79 @@ const SplitPage = () => {
     assignedCounts.length > 0 &&
     totalAssignedToAgent > 0;
 
+  const specialSplitMatrix = useMemo(() => {
+    const labels = [...new Set(filteredSpecialSplits.map((s) => s.label))].sort(
+      (a, b) => {
+        const numA = parseInt(getSplitLabelNumber(a), 10) || 0;
+        const numB = parseInt(getSplitLabelNumber(b), 10) || 0;
+        return numA - numB;
+      }
+    );
+
+    const rows = LOTTERY_ORDER.map((code) => {
+      const lotterySplits = filteredSpecialSplits.filter(
+        (s) => normalizeLotteryCode(s.lottery_code) === code
+      );
+
+      const lotteryName =
+        lotterySplits[0]?.lottery_name || LOTTERY_NAME_MAP[code] || code;
+
+      const splitData = {};
+      labels.forEach((label) => {
+        const match = lotterySplits.find((s) => s.label === label);
+        splitData[label] = match || null;
+      });
+
+      const remainingItem = remainingCounts.find(
+        (r) => normalizeLotteryCode(r.lottery_code) === code
+      );
+
+      const initialAssigned = Number(remainingItem?.original_assigned || 0);
+
+      return {
+        key: code,
+        lottery_code: code,
+        lottery_name: lotteryName,
+        initial_assigned: initialAssigned,
+        splitData,
+        remaining: Number(remainingItem?.remaining_count || 0),
+      };
+    }).filter((row) => {
+      if (specialFilterType === "by_lottery" && specialFilterValue) {
+        return row.lottery_code === specialFilterValue;
+      }
+      return true;
+    });
+
+    return { labels, rows };
+  }, [filteredSpecialSplits, remainingCounts, specialFilterType, specialFilterValue]);
+
+  const totalInitialInMatrix = useMemo(() => {
+    return specialSplitMatrix.rows.reduce(
+      (sum, r) => sum + Number(r.initial_assigned || 0),
+      0
+    );
+  }, [specialSplitMatrix.rows]);
+
+  const totalRemainingInMatrix = useMemo(() => {
+    return specialSplitMatrix.rows.reduce(
+      (sum, r) => sum + Number(r.remaining || 0),
+      0
+    );
+  }, [specialSplitMatrix.rows]);
+
+  // NEW: total split count per label
+  const splitTotals = useMemo(() => {
+    const totals = {};
+    specialSplitMatrix.labels.forEach((label) => {
+      totals[label] = specialSplitMatrix.rows.reduce((sum, row) => {
+        const data = row.splitData[label];
+        return sum + (data ? Number(data.record_count || 0) : 0);
+      }, 0);
+    });
+    return totals;
+  }, [specialSplitMatrix]);
+
   const performSplit = async () => {
     setSplitting(true);
     try {
@@ -462,6 +553,9 @@ const SplitPage = () => {
         assignment_date: selectedDate,
       });
       messageApi.success(`DBF files split successfully for ${agent}.`);
+      await checkInitialSplit(selectedDate, agent);
+      await loadSpecialSplits(selectedDate, agent);
+      await loadRemainingCounts(selectedDate, agent);
       navigate("/download");
     } catch (err) {
       console.error("Split failed:", err);
@@ -529,7 +623,6 @@ const SplitPage = () => {
   };
 
   const handleCreateSpecialSplit = () => {
-    // Gather counts
     const counts = remainingCounts
       .map((item) => ({
         lottery_code: item.lottery_code,
@@ -542,7 +635,6 @@ const SplitPage = () => {
       return;
     }
 
-    // Confirm before creating
     modalApi.confirm({
       title: "Create special split?",
       icon: <ScissorOutlined style={{ color: "#722ed1" }} />,
@@ -580,7 +672,6 @@ const SplitPage = () => {
             agent_name: agent,
             assignment_date: selectedDate,
             counts,
-            // label is omitted; backend generates automatically
           });
           messageApi.success("Special split created successfully.");
           setShowSpecialModal(false);
@@ -797,7 +888,6 @@ const SplitPage = () => {
     },
   ];
 
-  // Fixed special split columns with lottery names and dynamic remaining
   const specialSplitColumns = [
     {
       title: "#",
@@ -1144,6 +1234,7 @@ const SplitPage = () => {
               </Row>
             </Card>
 
+            {/* ASSIGNMENT CARD (COLLAPSIBLE) */}
             <Card
               className={`split-assignment-card ${agent === "JAYAWAY" ? "jayaway-card" : "winway-card"}`}
               bordered={false}
@@ -1157,7 +1248,9 @@ const SplitPage = () => {
                       {agent} Assignment
                     </Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      Assigned lottery quantities
+                      {hasInitialSplit
+                        ? "Initial split completed — assignment is finalized"
+                        : "Assigned lottery quantities — click Split to generate files"}
                     </Text>
                   </div>
                 </Space>
@@ -1171,224 +1264,429 @@ const SplitPage = () => {
                     >
                       {totalAssignedToAgent.toLocaleString()} Records
                     </Tag>
+
+                    {!hasInitialSplit && (
+                      <Button
+                        type="primary"
+                        icon={<ScissorOutlined />}
+                        loading={splitting}
+                        disabled={!canSplit || loadingAssignments}
+                        onClick={handleSplit}
+                        className={
+                          agent === "JAYAWAY"
+                            ? "split-action-btn jayaway-btn"
+                            : "split-action-btn winway-btn"
+                        }
+                      >
+                        Split for {agent}
+                      </Button>
+                    )}
+
                     <Button
-                      type="primary"
-                      icon={<ScissorOutlined />}
-                      loading={splitting}
-                      disabled={!canSplit || loadingAssignments}
-                      onClick={handleSplit}
-                      className={agent === "JAYAWAY" ? "split-action-btn jayaway-btn" : "split-action-btn winway-btn"}
+                      type="text"
+                      size="small"
+                      icon={showAssignmentTable ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                      onClick={() => setShowAssignmentTable((p) => !p)}
                     >
-                      Split for {agent}
+                      {showAssignmentTable ? "Hide" : "Show"}
                     </Button>
                   </Space>
                 )
               }
             >
-              <Table
-                rowKey={(record, index) => `${record.lottery_code || record.lottery_name}-${index}`}
-                columns={assignmentColumns}
-                dataSource={assignedCounts}
-                loading={loadingAssignments}
-                pagination={false}
-                size="middle"
-                scroll={{ x: 850 }}
-                locale={{
-                  emptyText: (
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description={
-                        <Text type="secondary">
-                          No assignments found for <Text strong>{agent}</Text>
-                        </Text>
-                      }
-                    />
-                  ),
-                }}
-                summary={() =>
-                  assignedCounts.length > 0 ? (
-                    <Table.Summary>
-                      <Table.Summary.Row className="summary-row">
-                        <Table.Summary.Cell index={0} />
-                        <Table.Summary.Cell index={1}>
-                          <Text strong>Total</Text>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={2} align="right">
-                          <Text strong>{totalAvailableQuantity.toLocaleString()}</Text>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={3} align="right">
-                          <Text strong style={{ color: agent === "JAYAWAY" ? "#722ed1" : "#13c2c2" }}>
-                            {totalAssignedToAgent.toLocaleString()}
+              {showAssignmentTable ? (
+                <Table
+                  rowKey={(record, index) => `${record.lottery_code || record.lottery_name}-${index}`}
+                  columns={assignmentColumns}
+                  dataSource={assignedCounts}
+                  loading={loadingAssignments}
+                  pagination={false}
+                  size="middle"
+                  scroll={{ x: 850 }}
+                  locale={{
+                    emptyText: (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description={
+                          <Text type="secondary">
+                            No assignments found for <Text strong>{agent}</Text>
                           </Text>
-                        </Table.Summary.Cell>
-                        <Table.Summary.Cell index={4} />
-                      </Table.Summary.Row>
-                    </Table.Summary>
-                  ) : null
-                }
-              />
+                        }
+                      />
+                    ),
+                  }}
+                  summary={() =>
+                    assignedCounts.length > 0 ? (
+                      <Table.Summary>
+                        <Table.Summary.Row className="summary-row">
+                          <Table.Summary.Cell index={0} />
+                          <Table.Summary.Cell index={1}>
+                            <Text strong>Total</Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={2} align="right">
+                            <Text strong>{totalAvailableQuantity.toLocaleString()}</Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={3} align="right">
+                            <Text strong style={{ color: agent === "JAYAWAY" ? "#722ed1" : "#13c2c2" }}>
+                              {totalAssignedToAgent.toLocaleString()}
+                            </Text>
+                          </Table.Summary.Cell>
+                          <Table.Summary.Cell index={4} />
+                        </Table.Summary.Row>
+                      </Table.Summary>
+                    ) : null
+                  }
+                />
+              ) : (
+                <div className="assignment-collapsed-message">
+                  <Space direction="vertical" align="center" style={{ width: "100%", padding: "20px 0" }}>
+                    <CheckCircleOutlined style={{ fontSize: 28, color: "#52c41a" }} />
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      Assignment for <Text strong>{agent}</Text> has already been split into{" "}
+                      <Text strong>{totalAssignedToAgent.toLocaleString()}</Text> records.
+                      Click <Text strong style={{ color: "#1677ff" }}>Show</Text> above to view details.
+                    </Text>
+                  </Space>
+                </div>
+              )}
             </Card>
 
-            {/* Special Splits Card */}
-                  <Card
-                    className="split-section-card special-splits-card"
-                    bordered={false}
-                    title={
-                      <Space size={10}>
-                        <div className="section-icon">
-                          <ScissorOutlined />
-                        </div>
-                        <div>
-                          <Text strong style={{ display: "block", fontSize: 16 }}>
-                            Special Splits
-                          </Text>
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            Create sub‑splits from the initial agent split
-                          </Text>
-                        </div>
-                      </Space>
-                    }
-                    extra={
-                      <Space size={12} wrap>
-                        {/* Filter dropdowns */}
-                        <Select
-                          value={specialFilterType}
-                          onChange={(val) => {
-                            setSpecialFilterType(val);
-                            setSpecialFilterValue(null);
-                          }}
-                          style={{ width: 150 }}
-                          options={[
-                            { value: "all", label: "All Splits" },
-                            { value: "by_split", label: "By Special Split" },
-                            { value: "by_lottery", label: "By Lottery" },
-                          ]}
+            {/* SPECIAL SPLITS CARD */}
+            <Card
+              className="special-splits-enhanced-card"
+              bordered={false}
+              style={{ marginTop: 20 }}
+            >
+              <div className="special-header">
+                <div className="special-header-left">
+                  <div className="special-header-icon">
+                    <HistoryOutlined />
+                  </div>
+                  <div>
+                    <div className="special-header-title">
+                      <Text strong style={{ fontSize: 17 }}>
+                        Special Splits
+                      </Text>
+                      {hasInitialSplit && uniqueSplitLabels.length > 0 && (
+                        <Badge
+                          count={uniqueSplitLabels.length}
+                          style={{ backgroundColor: "#722ed1", marginLeft: 8 }}
                         />
-                        {specialFilterType !== "all" && (
-                          <Select
-                            value={specialFilterValue}
-                            onChange={setSpecialFilterValue}
-                            style={{ width: 180 }}
-                            placeholder="Select value"
-                            options={filterValueOptions}
-                          />
-                        )}
+                      )}
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {hasInitialSplit
+                        ? "Create sub-splits from the initial agent split and download them individually"
+                        : "Complete the initial split first to unlock special splits"}
+                    </Text>
+                  </div>
+                </div>
 
-                        {hasInitialSplit && (
-                          <Tag color="green" style={{ margin: 0 }}>
-                            Available: {totalRemaining.toLocaleString()}
-                          </Tag>
-                        )}
-                        <Button
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadSpecialZip}
-                          disabled={!filteredSpecialSplits.length}
-                        >
-                          Special ZIP
-                        </Button>
-                        <Button
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadRemainingZip}
-                          disabled={totalRemaining === 0}
-                        >
-                          Remaining ZIP
-                        </Button>
-                        <Button
-                          type="primary"
-                          icon={<ScissorOutlined />}
-                          onClick={() => setShowSpecialModal(true)}
-                          disabled={!assignedCounts.length || !hasInitialSplit}
-                        >
-                          + Create Special Split
-                        </Button>
-                      </Space>
-                    }
-                    style={{ marginTop: 20 }}
-                  >
-                    <Table
-                      rowKey={(record) => record.id}
-                      dataSource={filteredSpecialSplits}
-                      loading={loadingSpecials || loadingRemaining}
-                      pagination={{ pageSize: 10, showSizeChanger: false }}
-                      size="middle"
-                      scroll={{ x: 800 }}
-                      locale={{
-                        emptyText: (
-                          <Empty
-                            image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description={
-                              hasInitialSplit
-                                ? "No special splits match the filter"
-                                : "Initial split must be done first"
-                            }
-                          />
-                        ),
+                {hasInitialSplit && (
+                  <Space size={10} wrap>
+                    <Select
+                      value={specialFilterType}
+                      onChange={(val) => {
+                        setSpecialFilterType(val);
+                        setSpecialFilterValue(null);
                       }}
-                      columns={[
-                        {
-                          title: "#",
-                          key: "index",
-                          width: 50,
-                          align: "center",
-                          render: (_, __, index) => <Text type="secondary">{index + 1}</Text>,
-                        },
-                        {
-                          title: "Label",
-                          dataIndex: "label",
-                          key: "label",
-                          render: (value) => <Tag color="geekblue">{value}</Tag>,
-                        },
-                        {
-                          title: "Lottery",
-                          dataIndex: "lottery_name",
-                          key: "lottery_name",
-                        },
-                        {
-                          title: "Draw",
-                          dataIndex: "draw_number",
-                          key: "draw_number",
-                        },
-                        {
-                          title: "Records",
-                          dataIndex: "record_count",
-                          key: "record_count",
-                          align: "right",
-                          render: (value) => <Text strong>{Number(value || 0).toLocaleString()}</Text>,
-                        },
-                        {
-                          title: "Serial Range",
-                          key: "serial",
-                          render: (_, record) => (
-                            <Text code>
-                              {record.start_serial} – {record.end_serial}
-                            </Text>
-                          ),
-                        },
-                        {
-                          title: "Download",
-                          key: "download",
-                          align: "center",
-                          render: (_, record) => (
-                            <Button
-                              type="link"
-                              onClick={() => {
-                                downloadSpecialFile(record.session_id, record.filename).then((res) => {
-                                  const url = window.URL.createObjectURL(new Blob([res.data]));
-                                  const a = document.createElement("a");
-                                  a.href = url;
-                                  a.download = record.filename;
-                                  a.click();
-                                  window.URL.revokeObjectURL(url);
-                                });
-                              }}
-                            >
-                              Download
-                            </Button>
-                          ),
-                        },
+                      style={{ width: 150 }}
+                      options={[
+                        { value: "all", label: "All Splits" },
+                        { value: "by_split", label: "By Special Split" },
+                        { value: "by_lottery", label: "By Lottery" },
                       ]}
                     />
-                  </Card>
+                    {specialFilterType !== "all" && (
+                      <Select
+                        value={specialFilterValue}
+                        onChange={setSpecialFilterValue}
+                        style={{ width: 180 }}
+                        placeholder="Select value"
+                        options={filterValueOptions}
+                      />
+                    )}
+
+                    <Tag
+                      color="green"
+                      style={{
+                        margin: 0,
+                        padding: "4px 12px",
+                        borderRadius: 20,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Available: {totalRemaining.toLocaleString()}
+                    </Tag>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      onClick={handleDownloadSpecialZip}
+                      disabled={!filteredSpecialSplits.length}
+                    >
+                      Special ZIP
+                    </Button>
+                    <Button
+                      icon={<DownloadOutlined />}
+                      onClick={handleDownloadRemainingZip}
+                      disabled={totalRemaining === 0}
+                    >
+                      Remaining ZIP
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<ScissorOutlined />}
+                      onClick={() => setShowSpecialModal(true)}
+                      disabled={!assignedCounts.length}
+                      style={{
+                        background:
+                          "linear-gradient(135deg, #722ed1 0%, #9254de 100%)",
+                        borderColor: "transparent",
+                        fontWeight: 600,
+                        boxShadow: "0 4px 12px rgba(114, 46, 209, 0.25)",
+                      }}
+                    >
+                      + Create Special Split
+                    </Button>
+                  </Space>
+                )}
+              </div>
+
+              {hasInitialSplit ? (
+                <div className="special-table-wrapper">
+                  <Table
+                    rowKey={(record) => record.key}
+                    dataSource={specialSplitMatrix.rows}
+                    loading={loadingSpecials || loadingRemaining}
+                    pagination={false}
+                    size="middle"
+                    bordered
+                    scroll={{ x: 900 }}
+                    className="special-matrix-table"
+                    locale={{
+                      emptyText: (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description="No special splits created yet — click + Create Special Split to start"
+                        />
+                      ),
+                    }}
+                    columns={[
+                      {
+                        title: "Lottery",
+                        dataIndex: "lottery_name",
+                        key: "lottery_name",
+                        width: 190,
+                        fixed: "left",
+                        render: (value, record) => (
+                          <Space size={8}>
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 8,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background:
+                                  "linear-gradient(135deg, #e6f4ff, #bae0ff)",
+                                color: "#1677ff",
+                                fontWeight: 700,
+                                fontSize: 11,
+                              }}
+                            >
+                              {record.lottery_code.slice(0, 2).toUpperCase()}
+                            </div>
+                            <Text strong style={{ fontSize: 13 }}>
+                              {value}
+                            </Text>
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: (
+                          <Tooltip title="Initial count assigned to this agent">
+                            <span>Initial</span>
+                          </Tooltip>
+                        ),
+                        dataIndex: "initial_assigned",
+                        key: "initial_assigned",
+                        width: 100,
+                        align: "right",
+                        className: "split-group-start",
+                        render: (value) => (
+                          <Text strong style={{ color: "#1677ff" }}>
+                            {Number(value || 0).toLocaleString()}
+                          </Text>
+                        ),
+                      },
+                      ...specialSplitMatrix.labels.map((label) => ({
+                        title: (
+                          <Tag
+                            color="geekblue"
+                            style={{ margin: 0, fontWeight: 600 }}
+                          >
+                            Split {getSplitLabelNumber(label)}
+                          </Tag>
+                        ),
+                        key: `group-${label}`,
+                        className: "split-group-header",
+                        children: [
+                          {
+                            title: "Records",
+                            key: `${label}-records`,
+                            width: 90,
+                            align: "right",
+                            className: "split-group-start",
+                            render: (_, record) => {
+                              const data = record.splitData[label];
+                              return data ? (
+                                <Text strong>
+                                  {Number(data.record_count || 0).toLocaleString()}
+                                </Text>
+                              ) : (
+                                <Text type="secondary">—</Text>
+                              );
+                            },
+                          },
+                          {
+                            title: "Serial Range",
+                            key: `${label}-serial`,
+                            width: 210,
+                            render: (_, record) => {
+                              const data = record.splitData[label];
+                              return data ? (
+                                <Text code style={{ fontSize: 11 }}>
+                                  {data.start_serial} – {data.end_serial}
+                                </Text>
+                              ) : (
+                                <Text type="secondary">—</Text>
+                              );
+                            },
+                          },
+                        ],
+                      })),
+                      {
+                        title: "Remaining",
+                        key: "remaining",
+                        width: 110,
+                        align: "right",
+                        fixed: "right",
+                        className: "split-group-start",
+                        render: (_, record) => (
+                          <Text
+                            strong
+                            type={record.remaining === 0 ? "success" : "warning"}
+                          >
+                            {record.remaining.toLocaleString()}
+                          </Text>
+                        ),
+                      },
+                    ]}
+                    summary={() => {
+                      if (!specialSplitMatrix.labels.length) return null;
+                      return (
+                        <Table.Summary fixed>
+                          <Table.Summary.Row>
+                            <Table.Summary.Cell index={0}>
+                              <Text strong style={{ fontSize: 12, color: "#595959" }}>
+                                TOTAL
+                              </Text>
+                            </Table.Summary.Cell>
+
+                            <Table.Summary.Cell
+                              index={1}
+                              align="right"
+                              className="split-group-start"
+                            >
+                              <Text
+                                strong
+                                style={{ color: "#1677ff", fontSize: 14 }}
+                              >
+                                {totalInitialInMatrix.toLocaleString()}
+                              </Text>
+                            </Table.Summary.Cell>
+
+                            {specialSplitMatrix.labels.map((label, idx) => (
+                              <Table.Summary.Cell
+                                key={label}
+                                index={idx * 2 + 2}
+                                colSpan={2}
+                                align="center"
+                                className="split-group-start"
+                              >
+                                <Space direction="vertical" size={4}>
+                                  <Button
+                                    type="primary"
+                                    ghost
+                                    size="small"
+                                    icon={<DownloadOutlined />}
+                                    onClick={() =>
+                                      handleDownloadSpecialZipForLabel(label)
+                                    }
+                                    style={{
+                                      borderColor: "#722ed1",
+                                      color: "#722ed1",
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Download Split {getSplitLabelNumber(label)}
+                                  </Button>
+                                  <Text
+                                    type="secondary"
+                                    style={{ fontSize: 11 }}
+                                  >
+                                    Total:{" "}
+                                    <Text
+                                      strong
+                                      style={{ color: "#722ed1" }}
+                                    >
+                                      {(splitTotals[label] || 0).toLocaleString()}
+                                    </Text>{" "}
+                                    records
+                                  </Text>
+                                </Space>
+                              </Table.Summary.Cell>
+                            ))}
+
+                            <Table.Summary.Cell
+                              index={specialSplitMatrix.labels.length * 2 + 2}
+                              align="right"
+                              className="split-group-start"
+                            >
+                              <Text
+                                strong
+                                style={{
+                                  fontSize: 14,
+                                  color:
+                                    totalRemainingInMatrix === 0
+                                      ? "#52c41a"
+                                      : "#fa8c16",
+                                }}
+                              >
+                                {totalRemainingInMatrix.toLocaleString()}
+                              </Text>
+                            </Table.Summary.Cell>
+                          </Table.Summary.Row>
+                        </Table.Summary>
+                      );
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="special-collapsed-message">
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        No special splits for this draw yet. Complete the initial split for{" "}
+                        <Text strong>{agent}</Text> to enable special splits.
+                      </Text>
+                    }
+                    style={{ margin: "24px 0" }}
+                  />
+                </div>
+              )}
+            </Card>
           </>
         )}
       </div>
@@ -1442,7 +1740,6 @@ const SplitPage = () => {
       </Modal>
 
       <style>{`
-        /* (styles remain identical to previous version) */
         .split-page { width: 100%; padding: 4px; }
         .split-header-card, .split-stat-card, .split-section-card, .split-agent-selector, .split-assignment-card {
           border: 1px solid #f0f0f0 !important;
@@ -1512,8 +1809,133 @@ const SplitPage = () => {
         .split-page .ant-btn:not(:disabled):hover { transform:translateY(-1px); }
         .split-page .ant-picker { min-height:40px; border-radius:10px; transition:border-color 0.2s ease, box-shadow 0.2s ease; }
         .split-page .ant-picker-focused { box-shadow:0 0 0 3px rgba(22,119,255,0.08); }
-        @media (max-width:768px) { .split-page { padding:0; } .split-header-card .ant-card-body { padding:18px; } .split-stat-card .ant-card-body { padding:17px; } .validation-summary { grid-template-columns:repeat(2,1fr); } .split-section-card .ant-card-head, .split-assignment-card .ant-card-head { padding:12px 16px; } .agent-select { width:100%; min-width:160px; } }
-        @media (max-width:480px) { .validation-summary { grid-template-columns:1fr 1fr; } .record-count-tag { display:none; } .split-action-btn { min-width:140px; } }
+
+        .assignment-collapsed-message {
+          padding: 24px;
+          background: linear-gradient(135deg, #f6ffed 0%, #f0f9f0 100%);
+          text-align: center;
+        }
+
+        /* ============================================
+           ENHANCED SPECIAL SPLITS CARD
+        ============================================ */
+        .special-splits-enhanced-card {
+          border: 1px solid #f0f0f0 !important;
+          border-radius: 16px !important;
+          overflow: hidden;
+          background: linear-gradient(135deg, #ffffff 0%, #fafbff 100%);
+          box-shadow: 0 6px 24px rgba(114, 46, 209, 0.08) !important;
+          transition: box-shadow 0.25s ease;
+        }
+        .special-splits-enhanced-card:hover {
+          box-shadow: 0 10px 32px rgba(114, 46, 209, 0.12) !important;
+        }
+        .special-splits-enhanced-card .ant-card-body { padding: 0; }
+
+        .special-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          flex-wrap: wrap;
+          padding: 20px 24px;
+          background: linear-gradient(135deg, #f9f0ff 0%, #f0f5ff 100%);
+          border-bottom: 1px solid #f0e7ff;
+        }
+        .special-header-left {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          flex-shrink: 0;
+        }
+        .special-header-icon {
+          width: 48px;
+          height: 48px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 14px;
+          background: linear-gradient(135deg, #722ed1, #9254de);
+          color: white;
+          font-size: 20px;
+          box-shadow: 0 6px 16px rgba(114, 46, 209, 0.30);
+        }
+        .special-header-title { display: flex; align-items: center; }
+
+        .special-table-wrapper {
+          padding: 20px 24px 24px;
+          overflow-x: auto;
+        }
+
+        .special-collapsed-message {
+          padding: 20px 24px 24px;
+        }
+
+        /* ============================================
+           SPECIAL MATRIX TABLE
+        ============================================ */
+        .special-splits-enhanced-card .ant-table {
+          border-radius: 12px;
+          overflow: hidden;
+        }
+        .special-splits-enhanced-card .ant-table-thead > tr > th {
+          background: #f5f0ff !important;
+          color: #531dab;
+          font-size: 12px;
+          font-weight: 700;
+          border-bottom: 1px solid #e6d9ff !important;
+        }
+        .special-splits-enhanced-card .ant-table-thead > tr:first-child > th {
+          background: #ede4ff !important;
+        }
+        .special-splits-enhanced-card .ant-table-tbody > tr > td {
+          border-bottom: 1px solid #f5f5f5 !important;
+        }
+        .special-splits-enhanced-card .ant-table-tbody > tr:hover > td {
+          background: #fbf7ff !important;
+        }
+        .special-splits-enhanced-card .ant-table-summary > tr > td {
+          background: #fafcff !important;
+          border-top: 2px solid #e6f4ff !important;
+          font-weight: 600;
+        }
+
+        /* Visual separation between split groups */
+        .special-matrix-table .split-group-start {
+          border-left: 2px solid #e6d9ff !important;
+        }
+        .special-matrix-table .split-group-header {
+          border-left: 2px solid #e6d9ff !important;
+        }
+        .special-matrix-table .ant-table-thead > tr:first-child > th.split-group-header {
+          background: #e6d9ff !important;
+          color: #531dab;
+          font-weight: 700;
+        }
+
+        @media (max-width: 768px) {
+          .split-page { padding: 0; }
+          .split-header-card .ant-card-body { padding: 18px; }
+          .split-stat-card .ant-card-body { padding: 17px; }
+          .validation-summary { grid-template-columns: repeat(2, 1fr); }
+          .split-section-card .ant-card-head,
+          .split-assignment-card .ant-card-head { padding: 12px 16px; }
+          .agent-select { width: 100%; min-width: 160px; }
+
+          .special-header {
+            padding: 16px 18px;
+            flex-direction: column;
+            align-items: flex-start;
+          }
+          .special-table-wrapper { padding: 16px; }
+          .special-collapsed-message { padding: 16px; }
+        }
+        @media (max-width: 480px) {
+          .validation-summary { grid-template-columns: 1fr 1fr; }
+          .record-count-tag { display: none; }
+          .split-action-btn { min-width: 140px; }
+          .special-header-icon { width: 40px; height: 40px; font-size: 17px; }
+        }
       `}</style>
     </>
   );
